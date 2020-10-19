@@ -1,4 +1,4 @@
-(ns ga-clj.core-test
+(ns ga-clj.genetic-test
   (:require [clojure.test :as t]
             [ga-clj.genetic :as g]))
 
