@@ -2,6 +2,7 @@
   (:require [progrock.core :as pr]))
 
 ;; Helpers: Generate Random Coordinates
+;; Copied from http://ccann.github.io/2016/05/05/random-coordinates.html
 
 (defn ->coord
   [coord-type n]
@@ -30,26 +31,12 @@
   ([n] (for [_ (range n)] (rand-coord))))
 
 
-;; Configurations
-
-
-(def num-generations 2000)
-(def elite-size 20)
-(def mutation-rate 0.01)
-(def population-size 150)
-(def cities (rand-coord 25))
-
-(def config {:cities cities
-             :population-size population-size
-             :num-generations num-generations
-             :mutation-rate mutation-rate
-             :elite-size elite-size})
-
-
-;; Computing Distance (and Fitness)
+;; Computing Haversine Distance
+;; Copied from https://gist.github.com/shayanjm/39418c8425c2a66d480f
 
 (defn haversine
-  "Implementation of Haversine formula. Takes two sets of latitude/longitude pairs and returns the shortest great circle distance between them (in km)"
+  "Implementation of Haversine formula.
+   Takes two sets of latitude/longitude pairs and returns the shortest great circle distance between them (in km)."
   [{lon1 :lng lat1 :lat} {lon2 :lng lat2 :lat}]
   (let [R 6378.137 ; Radius of Earth in km
         dlat (Math/toRadians (- lat2 lat1))
@@ -64,13 +51,29 @@
 
 ;; Helpers
 
-(defn cumsum [x] (reductions + x))
-(defn sum [x] (reduce + x))
-(defn div [coll num] (mapv #(/ % num) coll))
-(defn swap [v i1 i2]
+(defn cumsum
+  "Compute the cumulative sum of the input sequence."
+  [x]
+  (reductions + x))
+
+(defn sum
+  "Compute the sum of the input sequence."
+  [x]
+  (reduce + x))
+
+(defn div
+  "Divide the whole collection by a number. Useful for normalization."
+  [coll num]
+  (mapv #(/ % num) coll))
+
+(defn swap
+  "Swaps the items in two indices in a vector."
+  [v i1 i2]
   (assoc v i2 (v i1) i1 (v i2)))
 
-(defn route-distance [cities]
+(defn route-distance
+  "Computes the total traveled distance given that particular order."
+  [cities]
   (let [num-cities (count cities)]
     (reduce +
             (for
@@ -78,28 +81,41 @@
               (distance (cities i)
                         (cities (mod (inc i) num-cities)))))))
 
-(defn make-route [cities]
+(defn make-route
+  "Computes the route distance and fitness."
+  [cities]
   (let [d (route-distance cities)
         f (/ 1 d)]
     {:cities cities :distance d :fitness f}))
 
-(defn random-route [cities]
+(defn random-route
+  "Generates a random route."
+  [cities]
   (make-route (shuffle cities)))
 
-(defn random-population [{:keys [cities population-size]}]
+(defn random-population
+  "Generates a random population."
+  [{:keys [cities population-size]}]
   (for [_ (range population-size)] (random-route cities)))
 
-(defn assoc-index [coll]
+(defn assoc-index
+  "Associates each element in the collection with its index in the `:index` keyword."
+  [coll]
   (map-indexed (fn [index item] (assoc item :index index)) coll))
 
-(defn rank-population [population]
+(defn rank-population
+  "Ranks the population (in a descending order) by fitness."
+  [population]
   (into [] (sort-by (comp - :fitness) (assoc-index population))))
 
 (defn find-first
+  "Returns the first item in a collection that matches the predicate `f`."
   [f coll]
   (first (filter f coll)))
 
-(defn selection [ranked-population {:keys [elite-size]}]
+(defn selection
+  "Returns the indices of the selected individuals from this population."
+  [ranked-population {:keys [elite-size]}]
   (let [fitnesses (mapv :fitness ranked-population)
         cum-sum (cumsum fitnesses)
         total-sum (sum fitnesses)
@@ -112,15 +128,19 @@
                    (:index (find-first (fn [i] (>= (:cp i) pick)) enriched))))]
     (concat elite others)))
 
-(defn mating-pool [population selection-result]
+(defn mating-pool
+  "Constructs the mating pool from the population based on the selection result."
+  [population selection-result]
   (for [r selection-result] (nth population r)))
 
 (defn not-in?
+  "Returns true if the element `elm` is not in the collection `coll`"
   [coll elm]
   (not-any? #(= elm %) coll))
 
-(defn breed [i1 i2]
-
+(defn breed
+  "Takes two individuals and breeds them, returning a new individual."
+  [i1 i2]
   (let [num-cities (count (:cities i1))
         gene-1 (rand-int num-cities)
         gene-2 (rand-int num-cities)
@@ -130,7 +150,9 @@
         c2 (filterv #(not-in? c1 %) (:cities i2))]
     (make-route (into [] (concat c1 c2)))))
 
-(defn breed-population [population {:keys [elite-size]}]
+(defn breed-population
+  "Breeds the whole population, while keeping the elite."
+  [population {:keys [elite-size]}]
   (let [remaining (- (count population) elite-size)
         pool (shuffle population)]
     (into []
@@ -138,7 +160,9 @@
            (take elite-size population)
            (map (fn [e] (breed e (rand-nth pool))) (take remaining pool))))))
 
-(defn mutate [i mutation-rate]
+(defn mutate
+  "Mutates an individual according to the mutation rate."
+  [i mutation-rate]
   (let [route (:cities i)
         num-cities (count route)]
     (loop [r route
@@ -151,18 +175,23 @@
             (recur r (inc current))))))))
 
 (defn mutate-population
+  "Does mutation on the entire population."
   [population {:keys [mutation-rate]}]
   (mapv #(mutate % mutation-rate) population))
 
-(defn next-generation [population config]
+(defn next-generation
+  "Does a single step, evolves the current generation into the next generation."
+  [population config]
   (let [ranked-population (rank-population population)
         selection-result (selection ranked-population config)
         pool (mating-pool population selection-result)
         children (breed-population pool config)]
     (mutate-population children config)))
 
-(defn genetic-algorithm [{:keys
-                          [num-generations] :as config}]
+(defn genetic-algorithm
+  "The full algorithm. Evolves the first random population for a certain number of generations."
+  [{:keys
+    [num-generations] :as config}]
   (loop [population (random-population config)
          fitnesses []
          bar (pr/progress-bar num-generations)]
@@ -201,7 +230,9 @@
                :tooltip [{:field "generation" :type "quantitative" :title "Generation"}
                          {:field "fitness" :type "quantitative" :title "Fitness"}]})
 
-(defn vega-data [fitnesses]
+(defn vega-data
+  "Constructs Vega-Lite specification to be visualized."
+  [fitnesses]
   (mapv
    (fn [g f] {:generation g :fitness f})
    (range 1 (inc (count fitnesses)))
