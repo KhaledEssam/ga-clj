@@ -193,18 +193,18 @@
   [{:keys
     [num-generations] :as config}]
   (loop [population (random-population config)
-         fitnesses []
+         fitnesses (transient [])
          bar (pr/progress-bar num-generations)]
     (if (= (:progress bar) (:total bar))
       (do
         (pr/print (pr/done bar))
-        fitnesses)
+        (persistent! fitnesses))
       (do
         (pr/print bar)
         (let [best-so-far (first (rank-population population))]
           (recur
            (next-generation population config)
-           (conj fitnesses (:fitness best-so-far))
+           (conj! fitnesses (:fitness best-so-far))
            (pr/tick bar)))))))
 
 ;; Plotting Helpers
